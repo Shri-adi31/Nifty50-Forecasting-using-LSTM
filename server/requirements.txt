@@ -1,0 +1,8 @@
+fastapi            # FastAPI framework for building the API
+uvicorn            # ASGI server for running FastAPI apps
+pandas             # For data manipulation and cleaning
+yfinance           # For fetching stock data from Yahoo Finance
+pymongo            # MongoDB driver for interacting with MongoDB Atlas
+tensorflow         # For the LSTM model and retraining
+scikit-learn       # For data preprocessing (e.g., scaling data with MinMaxScaler)
+python-dotenv      # For loading environment variables from .env file
