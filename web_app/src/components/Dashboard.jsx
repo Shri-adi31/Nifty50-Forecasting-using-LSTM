@@ -14,7 +14,8 @@ const Dashboard = () => {
                 height: '100vh', 
                 padding: '1rem',
                 boxSizing: 'border-box',
-                overflow: 'hidden'
+                overflowY: 'auto',  // Enable vertical scrolling when necessary
+                overflowX: 'auto', // Avoid horizontal scrolling
             }}
         >
             <Box sx={{ textAlign: 'center', marginBottom: '1rem' }}>
