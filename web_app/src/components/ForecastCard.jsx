@@ -75,7 +75,7 @@ const ForecastCard = () => {
           style={{ marginBottom: '1rem' }}
         >
           <ToggleButton value="7-day">7-Day Forecast</ToggleButton>
-          <ToggleButton value="2-day">2-Day Forecast</ToggleButton>
+          <ToggleButton value="2-day">1-Day Forecast</ToggleButton>
         </ToggleButtonGroup>
 
         <ResponsiveContainer width="100%" height={300}>

@@ -1,0 +1,6 @@
+fastapi             # FastAPI framework for building the API
+uvicorn             # ASGI server for running FastAPI apps
+pandas              # For data manipulation and cleaning
+pymongo             # MongoDB driver for interacting with MongoDB Atlas
+python-dotenv       # For loading environment variables from .env file
+requests            # For making HTTP requests
