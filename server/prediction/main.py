@@ -10,12 +10,10 @@ import os
 app = FastAPI()
 
 # Define the paths to the model files relative to the application's root directory
-model_7day_path = 'prediction/model/models_7day.h5'
-model_2day_path = 'prediction/model/models_1day.h5'
+model_1day_path = 'prediction/model/saved_model1day.h5'
 
 try:
-    model_7day = load_model_safe(model_7day_path)
-    model_2day = load_model_safe(model_2day_path)
+    model_1day = load_model_safe(model_1day_path)
 except FileNotFoundError as e:
     print(e)
     raise HTTPException(status_code=500, detail=str(e))
@@ -28,43 +26,50 @@ class StockData(BaseModel):
     data: list
 
 # POST endpoint for 7-day forecast
-@app.post("/predict_7days/")
+@app.post("/predict_7days")
 async def predict_7days(stock_data: StockData):
     data = stock_data.data
     
-    # Ensure data is provided
-    if len(data) < 60:
-        raise HTTPException(status_code=400, detail="Not enough data. Need at least 60 values.")
-    
-    # Preprocess the data with a 60-day look-back period for a 7-day forecast
-    X_input = preprocess_data(data, scaler, look_back=60, forecast_horizon=7)
-    
-    # Make prediction using the 7-day model
-    predictions = model_7day(X_input)
-    
-    # Inverse scale the prediction back to the original scale
-    predictions_rescaled = scaler.inverse_transform(predictions)
-    
-    # Return the forecasted stock prices as a list
-    return {"7_day_predictions": predictions_rescaled.tolist()}
+    prediction_list = []
+    for i in range (7):
+            # Ensure data is provided
+            if len(data) < 21:
+                raise HTTPException(status_code=400, detail="Not enough data. Need at least 21 values.")
+            
+            # Preprocess the data with a 21-day look-back period for a 7-days forecast
+            X_input = preprocess_data(data, scaler,look_back=21)
+            
+            # Make prediction using the 7-day model
+            predictions = model_1day(X_input)
+            
+            # Inverse scale the prediction back to the original scale
+            predictions_rescaled = scaler.inverse_transform(predictions)
+            
+            prediction_list.append(predictions_rescaled.flatten().tolist())
 
-# POST endpoint for 2-day forecast
-@app.post("/predict_2days/")
-async def predict_2days(stock_data: StockData):
+            data.extend(predictions_rescaled.flatten().tolist())
+            data = data[1:]
+    # Return the forecasted stock prices as a list
+    return {"7_day_predictions": prediction_list}
+
+# POST endpoint for 1-day forecast
+@app.post("/predict_1days")
+async def predict_1days(stock_data: StockData):
     data = stock_data.data
     
     # Ensure data is provided
     if len(data) < 21:
         raise HTTPException(status_code=400, detail="Not enough data. Need at least 21 values.")
     
+    
     # Preprocess the data with a 21-day look-back period for a 2-day forecast
-    X_input = preprocess_data(data, scaler, look_back=21, forecast_horizon=2)
+    X_input = preprocess_data(data, scaler, look_back=21)
     
     # Make prediction using the 2-day model
-    predictions = model_2day(X_input)
+    predictions = model_1day(X_input)
     
     # Inverse scale the prediction back to the original scale
     predictions_rescaled = scaler.inverse_transform(predictions)
     
     # Return the forecasted stock prices as a list
-    return {"2_day_predictions": predictions_rescaled.tolist()}
+    return {"1_day_predictions": predictions_rescaled.tolist()}

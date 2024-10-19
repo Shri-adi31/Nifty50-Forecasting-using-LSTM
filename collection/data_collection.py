@@ -1,6 +1,7 @@
+import json
 import yfinance as yf
 import pandas as pd
-from pymongo import MongoClient
+from pymongo import MongoClient, errors,DESCENDING
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
@@ -18,42 +19,58 @@ DATABASE_NAME = 'finance_app'
 COLLECTION_NAME = 'niftybees_historical'
 
 # Establish MongoDB connection
-client = MongoClient(MONGO_URI)
-db = client[DATABASE_NAME]
-collection = db[COLLECTION_NAME]
+try:
+    client = MongoClient(MONGO_URI)
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
+    print("Connected to MongoDB successfully.")
+except errors.ConnectionFailure as e:
+    print(f"Could not connect to MongoDB: {e}")
 
 def get_last_inserted_date():
     """Fetch the latest timestamp from MongoDB collection."""
-    last_record = collection.find_one({}, sort=[("timestamp", -1)])
-    if last_record:
-        last_timestamp = last_record["timestamp"]
-        print(f"Last inserted data was on: {last_timestamp}")
-        return last_timestamp
-    else:
-        print("No previous data found, using default start date.")
-        return None  # No data in the collection
+    try:
+        last_record = collection.find_one(sort=[('_id', DESCENDING)])
+        if last_record:
+            last_timestamp = last_record["timestamp"]
+            print(f"Last inserted data was on: {last_timestamp}")
+            return last_timestamp
+        else:
+            print("No previous data found, using default start date.")
+            return None  # No data in the collection
+    except Exception as e:
+        print(f"Error fetching last inserted date: {e}")
+        return None
 
 def fetch_data(ticker, start, end):
     """Fetch historical data from Yahoo Finance."""
-    print(f"Fetching data for {ticker} from {start} to {end}")
-    data = yf.download(ticker, start=start, end=end, progress=False)
-    data.reset_index(inplace=True)
-    return data
+    try:
+        print(f"Fetching data for {ticker} from {start} to {end}")
+        data = yf.download(ticker, start=start, end=end, progress=False)
+        if data.empty:
+            print("No data fetched.")
+        data.reset_index(inplace=True)
+        return data
+    except Exception as e:
+        print(f"Error fetching data from Yahoo Finance: {e}")
+        return pd.DataFrame()
 
 def fetch_additional_info(ticker):
     """Fetch additional information like P/E ratio from Yahoo Finance."""
-    print(f"Fetching additional info for {ticker}")
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    
-    # Collect P/E ratio
-    pe_ratio = info.get("trailingPE", None)
-    
-    return pe_ratio
+    try:
+        print(f"Fetching additional info for {ticker}")
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Collect P/E ratio
+        pe_ratio = info.get("trailingPE", None)
+        return pe_ratio
+    except Exception as e:
+        print(f"Error fetching additional info: {e}")
+        return None
 
 def clean_transform_data(df, pe_ratio):
     """Clean and transform data to match the desired MongoDB schema."""
-    # Rename columns to match desired schema
     df.rename(columns={
         'Date': 'timestamp',
         'Open': 'open',
@@ -64,63 +81,69 @@ def clean_transform_data(df, pe_ratio):
         'Volume': 'volume'
     }, inplace=True)
 
-    # Convert 'timestamp' to datetime format for MongoDB
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-    # Add additional fields like P/E ratio
+    df['timestamp'] = pd.to_datetime(df['timestamp']).dt.date
     df['pe_ratio'] = pe_ratio
-
-    # Select relevant columns and handle missing or zero volume values
     df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'pe_ratio']]
 
     return df
 
-def insert_into_mongodb(df):
-    """Insert transformed data into MongoDB Atlas."""
-    print("Connecting to MongoDB")
-    
-    # Convert DataFrame to Dictionary for MongoDB insertion
-    records = df.to_dict(orient='records')
+def save_data_as_json(data, filename=JSON_OUTPUT_FILE):
+    """Save DataFrame to a JSON file."""
+    records = data.to_dict(orient='records')
 
-    # Insert records with upsert to avoid duplicates
-    print(f"Inserting {len(records)} records into MongoDB")
-    for record in records:
-        # Ensure 'timestamp' is in the correct datetime format for MongoDB
-        record['timestamp'] = pd.to_datetime(record['timestamp'])
-        collection.update_one(
-            {"timestamp": record["timestamp"]},
-            {"$set": record},
-            upsert=True
-        )
-    print("Data insertion complete")
+    if os.path.exists(filename):
+        with open(filename, 'r') as file:
+            try:
+                existing_data = json.load(file)
+            except json.JSONDecodeError:
+                existing_data = []
+    else:
+        existing_data = []
+
+    existing_data.extend(records)
+    with open(filename, 'w') as file:
+        json.dump(existing_data, file, indent=4, default=str)
+
+    print(f"Data saved to {filename}")
+
+def insert_json_into_mongodb(json_file):
+    """Insert data from JSON file into MongoDB Atlas."""
+    try:
+        print(f"Inserting data from {json_file} into MongoDB")
+        with open(json_file, 'r') as file:
+            records = json.load(file)
+        for record in records:
+            collection.update_one(
+                {"timestamp": record["timestamp"]},
+                {"$set": record},
+                upsert=True
+            )
+        print("Data insertion complete")
+    except Exception as e:
+        print(f"Error inserting data into MongoDB: {e}")
 
 def collect_data():
     """Main function to fetch, process, and store data."""
-    # Fetch the last inserted date from MongoDB
     last_inserted_date = get_last_inserted_date()
-    
-    # Define the start and end date for data collection
+
     if last_inserted_date:
-        start_date = (last_inserted_date + timedelta(days=1)).strftime('%Y-%m-%d')  # Start from the day after the last inserted date
+        start_date = (last_inserted_date)
     else:
-        start_date = '2014-05-26'  # Default start date if no data is present
+        start_date = '2014-05-26'
 
-    end_date = datetime.today().strftime('%Y-%m-%d')  # Today's date
-    
-    # Fetch historical data
+    end_date = datetime.today().strftime('%Y-%m-%d')
+
     raw_data = fetch_data(TICKER, start_date, end_date)
-
-    # If there's no new data, stop the process
     if raw_data.empty:
         return {"message": "No new data to insert."}
 
-    # Fetch additional info (P/E ratio)
     pe_ratio = fetch_additional_info(TICKER)
-
-    # Clean and transform data
     clean_data = clean_transform_data(raw_data, pe_ratio)
-
-    # Insert data into MongoDB
-    insert_into_mongodb(clean_data)
+    save_data_as_json(clean_data)
+    insert_json_into_mongodb(JSON_OUTPUT_FILE)
 
     return {"message": f"Data from {start_date} to {end_date} collected and stored successfully."}
+
+if __name__ == "__main__":
+    result = collect_data()
+    print(result)
